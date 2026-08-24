@@ -37,7 +37,7 @@ fn wait_without_shell_id(results: &ToolResultSender, call: &ToolCall) -> Result<
     let block_ms = call
         .arguments
         .get("block_until_ms")
-        .and_then(serde_json::Value::as_u64)
+        .and_then(codec::json_u64)
         .unwrap_or(30_000);
     if block_ms == 0 || block_ms > 7_140_000 {
         return Err(Error::Protocol(

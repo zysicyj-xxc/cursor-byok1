@@ -1,5 +1,3 @@
-use serde_json::Value;
-
 use crate::{
     cursor::proto::agent::v1 as pb,
     model::{ToolCall, ToolResult},
@@ -98,7 +96,7 @@ fn completion(
                     .call
                     .arguments
                     .get("block_until_ms")
-                    .and_then(Value::as_u64)
+                    .and_then(super::super::codec::json_u64)
                     .map(|value| value as u32),
                 regex: state.regex.clone(),
             }),

@@ -463,7 +463,7 @@ pub fn render_tool_call(call: &ToolCall, completed: bool) -> Result<pb::ToolCall
                 block_until_ms: call
                     .arguments
                     .get("block_until_ms")
-                    .and_then(Value::as_u64)
+                    .and_then(codec::json_u64)
                     .map(|v| v as u32),
                 regex: optional("pattern"),
             })

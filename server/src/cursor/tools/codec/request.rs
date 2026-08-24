@@ -370,8 +370,7 @@ fn shell_timeout(call: &ToolCall) -> Result<i32> {
         .arguments
         .get("block_until_ms")
         .map(|value| {
-            value
-                .as_i64()
+            json_i64(value)
                 .ok_or_else(|| Error::Protocol("Shell block_until_ms must be an integer".into()))
         })
         .transpose()?
@@ -380,6 +379,34 @@ fn shell_timeout(call: &ToolCall) -> Result<i32> {
         .ok()
         .filter(|value| *value >= 0)
         .ok_or_else(|| Error::Protocol("Shell block_until_ms is out of range".into()))
+}
+
+pub(crate) fn json_i64(value: &Value) -> Option<i64> {
+    match value {
+        Value::Number(number) => number.as_i64().or_else(|| whole_f64(number.as_f64()?)),
+        Value::String(text) => {
+            let text = text.trim();
+            text.parse::<i64>()
+                .ok()
+                .or_else(|| whole_f64(text.parse().ok()?))
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn json_u64(value: &Value) -> Option<u64> {
+    json_i64(value).and_then(|value| u64::try_from(value).ok())
+}
+
+fn whole_f64(value: f64) -> Option<i64> {
+    if value.is_finite()
+        && value.fract() == 0.0
+        && (i64::MIN as f64..=i64::MAX as f64).contains(&value)
+    {
+        Some(value as i64)
+    } else {
+        None
+    }
 }
 
 fn smart_mode_approval(
@@ -490,4 +517,69 @@ fn prost_value(value: &Value) -> prost_types::Value {
         }),
     };
     ProstValue { kind: Some(kind) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn shell(arguments: Value) -> ToolCall {
+        ToolCall {
+            index: 0,
+            call_id: "call-1".into(),
+            model_call_id: "model-1".into(),
+            name: "Shell".into(),
+            arguments_text: arguments.to_string(),
+            arguments,
+        }
+    }
+
+    fn timeout(arguments: Value) -> i32 {
+        request(1, &shell(arguments), &ExecContext::default())
+            .ok()
+            .and_then(|message| match message.message {
+                Some(pb::agent_server_message::Message::ExecServerMessage(exec)) => match exec
+                    .message
+                {
+                    Some(pb::exec_server_message::Message::ShellStreamArgs(args)) => {
+                        Some(args.timeout)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("ShellStreamArgs")
+    }
+
+    #[test]
+    fn block_until_ms_accepts_integer_string_and_whole_float() {
+        assert_eq!(timeout(json!({"command": "dir"})), 30_000);
+        assert_eq!(timeout(json!({"command": "dir", "block_until_ms": 3000})), 3000);
+        let mut float_ms = json!({"command": "dir"});
+        float_ms["block_until_ms"] =
+            Value::Number(serde_json::Number::from_f64(3000.0).expect("3000.0"));
+        assert_eq!(timeout(float_ms), 3000);
+        assert_eq!(
+            timeout(json!({"command": "dir", "block_until_ms": "30000"})),
+            30_000
+        );
+        assert_eq!(
+            timeout(json!({"command": "dir", "block_until_ms": " 0 "})),
+            0
+        );
+        let err = request(
+            1,
+            &shell(json!({"command": "dir", "block_until_ms": "30s"})),
+            &ExecContext::default(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("must be an integer"));
+        assert!(request(
+            1,
+            &shell(json!({"command": "dir", "block_until_ms": 1.5})),
+            &ExecContext::default(),
+        )
+        .is_err());
+    }
 }

@@ -184,7 +184,7 @@ impl CursorToolRuntime {
         let block_ms = call
             .arguments
             .get("block_until_ms")
-            .and_then(serde_json::Value::as_u64)
+            .and_then(super::codec::json_u64)
             .unwrap_or(30_000);
         if block_ms > 7_140_000 {
             return Err(Error::Protocol(
